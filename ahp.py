@@ -1,7 +1,7 @@
 # Лабораторная работа - Метод анализа иерархий (МАИ) Т. Саати, один уровень.
 # Программа помогает расставить приоритеты между критериями: пользователь
 # сравнивает критерии попарно, а программа превращает эти суждения в
-# весовые коэффициенты.
+# весовые коэффициенты и проверяет, не противоречат ли суждения друг другу.
 
 import re
 import sys
@@ -15,6 +15,16 @@ except (AttributeError, ValueError):
     pass
 
 MIN_N, MAX_N = 2, 10
+# Индексы случайной согласованности Саати: с ними сравнивается
+# согласованность матрицы пользователя, чтобы понять, лучше ли его
+# оценки случайных. Значение для n = 1 и 2 равно нулю - матрица 2x2
+# согласована всегда
+RANDOM_INDEX = {1: 0.0, 2: 0.0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24,
+                7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49}
+# Порог Саати: при большем отношении согласованности оценки считаются
+# противоречивыми и веса по ним доверия не заслуживают
+CR_LIMIT = 0.10
+
 
 class Interrupted(Exception):
     # Отдельное исключение позволяет из любого места диалога корректно
@@ -173,6 +183,19 @@ def geometric_weights(matrix):
     return means, [m / total for m in means]
 
 
+def consistency(matrix, weights):
+    # Веса имеют смысл, только если суждения не противоречат друг другу
+    # (если A важнее B, а B важнее C, то A должно быть важнее C).
+    # Мерой служит отношение согласованности ОС = ИС / СИ
+    n = len(matrix)
+    lambda_max = sum(sum(matrix[i][j] * weights[j] for j in range(n)) /
+                     weights[i] for i in range(n)) / n
+    ci = (lambda_max - n) / (n - 1)
+    ri = RANDOM_INDEX[n]
+    cr = ci / ri if ri > 0 else 0.0
+    return lambda_max, ci, cr
+
+
 def format_rating(value):
     # Оценки показываются так, как их привычно записывать по шкале
     # Саати (3, 1/3), а не как 0.3333333 - так таблицу легче сверить
@@ -231,19 +254,42 @@ def run_once():
     names = ask_names(n)
     print()
     print_scale()
-    print()
-    matrix = fill_matrix(names)
-    means, weights = geometric_weights(matrix)
-    print()
-    print_matrix(names, matrix, means, weights)
-    print()
-    print_result(names, weights)
+    while True:
+        print()
+        matrix = fill_matrix(names)
+        means, weights = geometric_weights(matrix)
+        lambda_max, ci, cr = consistency(matrix, weights)
+        print()
+        print_matrix(names, matrix, means, weights)
+        print()
+        if n > 2:
+            print("Проверка согласованности: λmax = " +
+                  format(lambda_max, ".3f") + ", ИС = " + format(ci, ".3f") +
+                  ", ОС = " + format(cr, ".3f") + " (допустимо до " +
+                  format(CR_LIMIT, ".2f") + ").")
+        if cr <= CR_LIMIT:
+            if n > 2:
+                print("Оценки согласованы, весам можно доверять.")
+            print()
+            print_result(names, weights)
+            return
+        # При несогласованных оценках веса формально считаются, но
+        # опираться на них нельзя - поэтому предлагаем исправить ввод
+        print("Внимание: оценки противоречат друг другу (ОС > " +
+              format(CR_LIMIT, ".2f") + ").")
+        print("Проверьте, что если A важнее B, а B важнее C, то и A "
+              "важнее C.")
+        if not ask_choice("Ввести сравнения заново?"):
+            print()
+            print_result(names, weights)
+            print("  Учтите: веса получены по несогласованным оценкам.")
+            return
 
 
 def main():
     print("Метод анализа иерархий Т. Саати")
     print("Программа рассчитывает весовые коэффициенты критериев по их")
-    print("попарному сравнению.")
+    print("попарному сравнению и проверяет согласованность оценок.")
     try:
         while True:
             print()
